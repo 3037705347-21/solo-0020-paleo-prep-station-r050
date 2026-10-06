@@ -128,6 +128,29 @@
         "repository",
         "contracts"
       ]
+    },
+    {
+      "id": "restriction-policy",
+      "name": "Maintain specimen handling restriction policy",
+      "entry": "POST /policy/rules + POST /policy/publications + POST /specimens/{id}/plans",
+      "steps": [
+        "maintain restriction rules keyed by matrix kind and risk level in a single draft",
+        "publish immutable, append-only versions with a content hash",
+        "resolve the effective rule for the specimen's current classification when creating or revising a draft plan",
+        "stamp the plan with the version and classification snapshot without rewriting historical plans or progress"
+      ],
+      "success": "returns published versions and plans stamped with the resolved version",
+      "failure": "returns deterministic conflicts for unpublished policy, unclassified specimen, missing rule, out-of-range parameters, and duplicate publication",
+      "verification": "workflowcheck covers missing policy, field-level violations, duplicate and concurrent publication, non-retroactive versions, revision and concurrent plan evaluation",
+      "module_ids": [
+        "entrypoint",
+        "runtimecheck",
+        "httpapi",
+        "station",
+        "domain",
+        "repository",
+        "contracts"
+      ]
     }
   ],
   "complexity": {
@@ -137,6 +160,6 @@
       "error_propagation",
       "concurrency"
     ],
-    "notes": "Plan and specimen state changes share one repository mutation; duplicate catalog numbers and unfinished plans are rejected at commit time."
+    "notes": "Plan and specimen state changes share one repository mutation; duplicate catalog numbers and unfinished plans are rejected at commit time. Policy versions are append-only: plan parameter evaluation and publication serialize on the repository mutex, and plans keep their stamped version so later publications never rewrite history."
   }
 }

@@ -32,12 +32,24 @@ func (s *Service) CreatePlan(
 			request.Objective,
 			request.Method,
 			request.Adhesive,
+			request.PeelStrength,
 			request.TargetExposure,
 			s.now(),
 		)
 		if err != nil {
 			return err
 		}
+		// Policy is resolved from the specimen's current classification in
+		// the latest published version, and stamped onto the plan. Later
+		// publications cannot rewrite this stamp.
+		version, rule, err := resolveRestriction(m, specimen)
+		if err != nil {
+			return err
+		}
+		if err := domain.EvaluateRestriction(rule, plan.RestrictionParams()); err != nil {
+			return err
+		}
+		plan.StampPolicy(version, specimen)
 		if err := specimen.MarkPlanned(s.now()); err != nil {
 			return err
 		}
@@ -47,6 +59,53 @@ func (s *Service) CreatePlan(
 		return nil
 	})
 	return created, err
+}
+
+// RevisePlan changes a draft plan's parameters and re-evaluates them against
+// the current policy. Approved plans are rejected, and progress never enters
+// this path, so published updates never touch historical plans.
+func (s *Service) RevisePlan(
+	ctx context.Context,
+	planID string,
+	request contracts.CreatePlanRequest,
+) (domain.PrepPlan, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.PrepPlan{}, err
+	}
+
+	var revised domain.PrepPlan
+	err := s.repo.Mutate(func(m *repository.Mutation) error {
+		plan, ok := m.GetPlan(planID)
+		if !ok {
+			return notFoundPlan(planID)
+		}
+		specimen, ok := m.GetSpecimen(plan.SpecimenID)
+		if !ok {
+			return notFoundSpecimen(plan.SpecimenID)
+		}
+		if err := plan.Revise(
+			request.Objective,
+			request.Method,
+			request.Adhesive,
+			request.PeelStrength,
+			request.TargetExposure,
+			s.now(),
+		); err != nil {
+			return err
+		}
+		version, rule, err := resolveRestriction(m, specimen)
+		if err != nil {
+			return err
+		}
+		if err := domain.EvaluateRestriction(rule, plan.RestrictionParams()); err != nil {
+			return err
+		}
+		plan.StampPolicy(version, specimen)
+		m.PutPlan(plan)
+		revised = plan
+		return nil
+	})
+	return revised, err
 }
 
 func (s *Service) ApprovePlan(

@@ -38,6 +38,19 @@ func (api *API) getPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, value)
 }
 
+func (api *API) revisePlan(w http.ResponseWriter, r *http.Request) {
+	var request contracts.CreatePlanRequest
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	value, err := api.service.RevisePlan(r.Context(), r.PathValue("id"), request)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, value)
+}
+
 func (api *API) approvePlan(w http.ResponseWriter, r *http.Request) {
 	var request contracts.ApprovalRequest
 	if !decodeJSON(w, r, &request) {

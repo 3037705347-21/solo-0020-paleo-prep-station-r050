@@ -18,6 +18,7 @@ type Error struct {
 	Code    string
 	Message string
 	Cause   error
+	Details map[string]string
 }
 
 func (e *Error) Error() string {
@@ -47,6 +48,12 @@ func NotFound(code, message string) error {
 
 func Conflict(code, message string) error {
 	return &Error{Kind: KindConflict, Code: code, Message: message}
+}
+
+// ConflictDetails attaches field-level information so callers can see which
+// restriction boundary was crossed without changing the stable error code.
+func ConflictDetails(code, message string, details map[string]string) error {
+	return &Error{Kind: KindConflict, Code: code, Message: message, Details: details}
 }
 
 func Internal(code, message string, cause error) error {

@@ -22,6 +22,7 @@ type Specimen struct {
 	FieldLabel    string         `json:"field_label"`
 	TaxonHint     string         `json:"taxon_hint"`
 	MatrixKind    string         `json:"matrix_kind"`
+	RiskLevel     RiskLevel      `json:"risk_level,omitempty"`
 	JacketNotes   string         `json:"jacket_notes"`
 	Status        SpecimenStatus `json:"status"`
 	Version       int            `json:"version"`
@@ -35,6 +36,7 @@ func NewSpecimen(
 	fieldLabel string,
 	taxonHint string,
 	matrixKind string,
+	riskLevel string,
 	jacketNotes string,
 	now time.Time,
 ) (Specimen, error) {
@@ -57,6 +59,10 @@ func NewSpecimen(
 	if err != nil {
 		return Specimen{}, err
 	}
+	risk, err := ValidRiskLevel(riskLevel)
+	if err != nil {
+		return Specimen{}, err
+	}
 	notes, err := optionalText("夹克备注", jacketNotes, 500)
 	if err != nil {
 		return Specimen{}, err
@@ -67,12 +73,47 @@ func NewSpecimen(
 		FieldLabel:    field,
 		TaxonHint:     taxon,
 		MatrixKind:    matrix,
+		RiskLevel:     risk,
 		JacketNotes:   notes,
 		Status:        SpecimenRegistered,
 		Version:       1,
 		CreatedAt:     now.UTC(),
 		UpdatedAt:     now.UTC(),
 	}, nil
+}
+
+// IsClassified reports whether the lead has assigned a risk level. Policy
+// limits can only be resolved for classified specimens.
+func (s Specimen) IsClassified() bool {
+	return s.RiskLevel == RiskLow || s.RiskLevel == RiskMedium || s.RiskLevel == RiskHigh
+}
+
+// Reclassify updates the matrix/risk classification against which future plan
+// changes are evaluated. It never rewrites plans already stamped with a
+// policy version, and available specimens are permanently locked.
+func (s *Specimen) Reclassify(matrixKind string, riskLevel string, now time.Time) error {
+	if s.Status == SpecimenAvailable {
+		return contracts.Conflict("specimen_locked", "已放行标本的分类不能再调整")
+	}
+	matrix, err := requiredText("基质类型", matrixKind, 60)
+	if err != nil {
+		return err
+	}
+	risk, err := ValidRiskLevel(riskLevel)
+	if err != nil {
+		return err
+	}
+	if risk == "" {
+		return contracts.Invalid("required_field", "风险等级不能为空")
+	}
+	if s.MatrixKind == matrix && s.RiskLevel == risk {
+		return nil
+	}
+	s.MatrixKind = matrix
+	s.RiskLevel = risk
+	s.Version++
+	s.UpdatedAt = now.UTC()
+	return nil
 }
 
 func (s Specimen) CanCreatePlan() bool {

@@ -41,3 +41,25 @@ func (api *API) getSpecimen(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, value)
 }
+
+func (api *API) reclassifySpecimen(w http.ResponseWriter, r *http.Request) {
+	var request contracts.ClassificationRequest
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	value, err := api.service.ReclassifySpecimen(r.Context(), r.PathValue("id"), request)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, value)
+}
+
+func (api *API) getEffectiveRestriction(w http.ResponseWriter, r *http.Request) {
+	value, err := api.service.GetEffectiveRestriction(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, value)
+}
