@@ -22,6 +22,7 @@ type Specimen struct {
 	FieldLabel    string         `json:"field_label"`
 	TaxonHint     string         `json:"taxon_hint"`
 	MatrixKind    string         `json:"matrix_kind"`
+	RiskLevel     RiskLevel      `json:"risk_level"`
 	JacketNotes   string         `json:"jacket_notes"`
 	Status        SpecimenStatus `json:"status"`
 	Version       int            `json:"version"`
@@ -35,6 +36,7 @@ func NewSpecimen(
 	fieldLabel string,
 	taxonHint string,
 	matrixKind string,
+	riskLevel RiskLevel,
 	jacketNotes string,
 	now time.Time,
 ) (Specimen, error) {
@@ -57,6 +59,12 @@ func NewSpecimen(
 	if err != nil {
 		return Specimen{}, err
 	}
+	if riskLevel == "" {
+		riskLevel = RiskLow
+	}
+	if riskLevel != RiskLow && riskLevel != RiskMedium && riskLevel != RiskHigh {
+		return Specimen{}, contracts.Invalid("invalid_risk_level", "风险等级只能是 low、medium 或 high")
+	}
 	notes, err := optionalText("夹克备注", jacketNotes, 500)
 	if err != nil {
 		return Specimen{}, err
@@ -67,6 +75,7 @@ func NewSpecimen(
 		FieldLabel:    field,
 		TaxonHint:     taxon,
 		MatrixKind:    matrix,
+		RiskLevel:     riskLevel,
 		JacketNotes:   notes,
 		Status:        SpecimenRegistered,
 		Version:       1,
@@ -127,6 +136,30 @@ func (s *Specimen) MarkAvailable(now time.Time) error {
 		return contracts.Conflict("specimen_not_releasable", "只有已稳定标本可以办理放行")
 	}
 	s.Status = SpecimenAvailable
+	s.Version++
+	s.UpdatedAt = now.UTC()
+	return nil
+}
+
+// Reclassify updates the current classification used to resolve handling
+// restrictions. An available specimen has left the preparation process and
+// can never be reclassified; open-plan guards live in the service layer.
+func (s *Specimen) Reclassify(matrixKind string, riskLevel RiskLevel, now time.Time) error {
+	if s.Status == SpecimenAvailable {
+		return contracts.Conflict("specimen_classification_locked", "标本已放行，分类不能再变更")
+	}
+	matrix, err := requiredText("基质类型", matrixKind, 60)
+	if err != nil {
+		return err
+	}
+	if riskLevel != RiskLow && riskLevel != RiskMedium && riskLevel != RiskHigh {
+		return contracts.Invalid("invalid_risk_level", "风险等级只能是 low、medium 或 high")
+	}
+	if s.MatrixKind == matrix && s.RiskLevel == riskLevel {
+		return nil
+	}
+	s.MatrixKind = matrix
+	s.RiskLevel = riskLevel
 	s.Version++
 	s.UpdatedAt = now.UTC()
 	return nil

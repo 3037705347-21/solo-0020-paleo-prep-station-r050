@@ -26,6 +26,18 @@
     {
       "workflow_id": "release-for-study",
       "command": "go run ./cmd/workflowcheck --workflow release-for-study"
+    },
+    {
+      "workflow_id": "publish-handling-policy",
+      "command": "go run ./cmd/workflowcheck --workflow publish-handling-policy"
+    },
+    {
+      "workflow_id": "enforce-handling-policy",
+      "command": "go run ./cmd/workflowcheck --workflow enforce-handling-policy"
+    },
+    {
+      "workflow_id": "concurrent-policy-evaluation",
+      "command": "go run ./cmd/workflowcheck --workflow concurrent-policy-evaluation"
     }
   ]
 }

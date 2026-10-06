@@ -128,6 +128,72 @@
         "repository",
         "contracts"
       ]
+    },
+    {
+      "id": "publish-handling-policy",
+      "name": "Publish specimen handling policy",
+      "entry": "PUT /policies/handling/draft + POST /policies/handling/publish",
+      "steps": [
+        "validate each matrix/risk restriction row and reject duplicate classifications",
+        "save the single editable draft with revision-based optimistic concurrency",
+        "freeze the draft into an append-only immutable version and consume the draft"
+      ],
+      "success": "returns monotonic published versions that stay readable forever",
+      "failure": "returns conflict for a duplicate rule, stale draft revision, or repeated publish",
+      "verification": "workflowcheck exercises duplicate rows, optimistic revisions, repeated publish, and version history",
+      "module_ids": [
+        "entrypoint",
+        "runtimecheck",
+        "httpapi",
+        "station",
+        "domain",
+        "repository",
+        "contracts"
+      ]
+    },
+    {
+      "id": "enforce-handling-policy",
+      "name": "Enforce handling policy on plans",
+      "entry": "POST /specimens/{id}/plans + PUT /plans/{id}",
+      "steps": [
+        "resolve the latest published policy for the specimen's current matrix and risk",
+        "validate exposure range, adhesive whitelist, and peel strength cap",
+        "snapshot the evaluated policy version onto the plan and never re-evaluate it"
+      ],
+      "success": "creates or revises drafts only against an exact-matching rule and records the version",
+      "failure": "returns conflict for missing policy or missing rule and invalid for out-of-range parameters",
+      "verification": "workflowcheck verifies every boundary, version snapshot, and non-retroactive progress under a tightened new version",
+      "module_ids": [
+        "entrypoint",
+        "runtimecheck",
+        "httpapi",
+        "station",
+        "domain",
+        "repository",
+        "contracts"
+      ]
+    },
+    {
+      "id": "concurrent-policy-evaluation",
+      "name": "Concurrent policy publish and plan evaluation",
+      "entry": "POST /policies/handling/publish races POST /specimens/{id}/plans",
+      "steps": [
+        "serialize plan evaluation and policy publication under the repository mutation lock",
+        "assign published versions monotonically and reject draftless publishes with conflict",
+        "bind every created plan to one immutable version that remains readable"
+      ],
+      "success": "every plan lands on an existing version and versions form a dense sequence",
+      "failure": "losing publishers receive a deterministic conflict instead of duplicate versions",
+      "verification": "workflowcheck races twenty plan creations against six repeated publishers and checks snapshots and version sequence",
+      "module_ids": [
+        "entrypoint",
+        "runtimecheck",
+        "httpapi",
+        "station",
+        "domain",
+        "repository",
+        "contracts"
+      ]
     }
   ],
   "complexity": {
@@ -137,6 +203,6 @@
       "error_propagation",
       "concurrency"
     ],
-    "notes": "Plan and specimen state changes share one repository mutation; duplicate catalog numbers and unfinished plans are rejected at commit time."
+    "notes": "Plan and specimen state changes share one repository mutation; duplicate catalog numbers and unfinished plans are rejected at commit time. Handling policies are append-only immutable versions; plans snapshot the evaluated version so releases never retroactively rewrite existing plans, and policy publication is serialized with plan evaluation under the repository lock."
   }
 }

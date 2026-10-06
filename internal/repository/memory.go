@@ -8,10 +8,12 @@ import (
 )
 
 type state struct {
-	specimens map[string]domain.Specimen
-	plans     map[string]domain.PrepPlan
-	progress  map[string][]domain.ProgressEntry
-	releases  map[string]domain.ReleaseRecord
+	specimens      map[string]domain.Specimen
+	plans          map[string]domain.PrepPlan
+	progress       map[string][]domain.ProgressEntry
+	releases       map[string]domain.ReleaseRecord
+	policyVersions []domain.PolicyVersion
+	policyDraft    *domain.PolicyDraft
 }
 
 type MemoryRepository struct {
@@ -22,10 +24,12 @@ type MemoryRepository struct {
 func NewMemory() *MemoryRepository {
 	return &MemoryRepository{
 		state: state{
-			specimens: make(map[string]domain.Specimen),
-			plans:     make(map[string]domain.PrepPlan),
-			progress:  make(map[string][]domain.ProgressEntry),
-			releases:  make(map[string]domain.ReleaseRecord),
+			specimens:      make(map[string]domain.Specimen),
+			plans:          make(map[string]domain.PrepPlan),
+			progress:       make(map[string][]domain.ProgressEntry),
+			releases:       make(map[string]domain.ReleaseRecord),
+			policyVersions: nil,
+			policyDraft:    nil,
 		},
 	}
 }
@@ -50,10 +54,11 @@ func (r *MemoryRepository) Mutate(fn func(*Mutation) error) error {
 
 func cloneMutation(source state) *Mutation {
 	copied := state{
-		specimens: make(map[string]domain.Specimen, len(source.specimens)),
-		plans:     make(map[string]domain.PrepPlan, len(source.plans)),
-		progress:  make(map[string][]domain.ProgressEntry, len(source.progress)),
-		releases:  make(map[string]domain.ReleaseRecord, len(source.releases)),
+		specimens:      make(map[string]domain.Specimen, len(source.specimens)),
+		plans:          make(map[string]domain.PrepPlan, len(source.plans)),
+		progress:       make(map[string][]domain.ProgressEntry, len(source.progress)),
+		releases:       make(map[string]domain.ReleaseRecord, len(source.releases)),
+		policyVersions: clonePolicyVersions(source.policyVersions),
 	}
 	for key, value := range source.specimens {
 		copied.specimens[key] = value
@@ -67,7 +72,24 @@ func cloneMutation(source state) *Mutation {
 	for key, value := range source.releases {
 		copied.releases[key] = value
 	}
+	if source.policyDraft != nil {
+		draft := *source.policyDraft
+		draft.Rules = append([]domain.HandlingRule(nil), source.policyDraft.Rules...)
+		copied.policyDraft = &draft
+	}
 	return &Mutation{state: copied}
+}
+
+func clonePolicyVersions(versions []domain.PolicyVersion) []domain.PolicyVersion {
+	if versions == nil {
+		return nil
+	}
+	copied := make([]domain.PolicyVersion, len(versions))
+	for i, version := range versions {
+		copied[i] = version
+		copied[i].Rules = append([]domain.HandlingRule(nil), version.Rules...)
+	}
+	return copied
 }
 
 type Mutation struct {
@@ -163,4 +185,57 @@ func (m *Mutation) ReleaseForSpecimen(specimenID string) (domain.ReleaseRecord, 
 
 func (m *Mutation) PutRelease(value domain.ReleaseRecord) {
 	m.state.releases[value.ID] = value
+}
+
+// GetPolicyDraft returns the editable working copy. There is at most one.
+func (m *Mutation) GetPolicyDraft() (domain.PolicyDraft, bool) {
+	if m.state.policyDraft == nil {
+		return domain.PolicyDraft{}, false
+	}
+	return *m.state.policyDraft, true
+}
+
+func (m *Mutation) PutPolicyDraft(draft domain.PolicyDraft) {
+	copied := draft
+	copied.Rules = append([]domain.HandlingRule(nil), draft.Rules...)
+	m.state.policyDraft = &copied
+}
+
+func (m *Mutation) ClearPolicyDraft() {
+	m.state.policyDraft = nil
+}
+
+// LatestPolicyVersion returns the most recently published version. Published
+// versions are append-only and never mutated in place.
+func (m *Mutation) LatestPolicyVersion() (domain.PolicyVersion, bool) {
+	if len(m.state.policyVersions) == 0 {
+		return domain.PolicyVersion{}, false
+	}
+	return m.state.policyVersions[len(m.state.policyVersions)-1], true
+}
+
+func (m *Mutation) GetPolicyVersion(version int) (domain.PolicyVersion, bool) {
+	for _, value := range m.state.policyVersions {
+		if value.Version == version {
+			return value, true
+		}
+	}
+	return domain.PolicyVersion{}, false
+}
+
+func (m *Mutation) ListPolicyVersions() []domain.PolicyVersion {
+	return append([]domain.PolicyVersion(nil), m.state.policyVersions...)
+}
+
+// AddPolicyVersion appends a published version. Version numbers must be
+// strictly increasing; the check is defensive because the service assigns the
+// next number while already holding the repository lock.
+func (m *Mutation) AddPolicyVersion(version domain.PolicyVersion) {
+	if len(m.state.policyVersions) > 0 {
+		last := m.state.policyVersions[len(m.state.policyVersions)-1]
+		if version.Version <= last.Version {
+			panic("policy versions must be appended in increasing order")
+		}
+	}
+	m.state.policyVersions = append(m.state.policyVersions, version)
 }

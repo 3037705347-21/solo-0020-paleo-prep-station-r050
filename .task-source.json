@@ -53,6 +53,22 @@
         "只有稳定标本可以放行",
         "存在未结束方案时不得放行"
       ]
+    },
+    {
+      "id": "handling_policy",
+      "label": "标本处置限制政策",
+      "relations": [
+        "handling_rule keyed_by (matrix_kind, risk_level) belongs_to handling_policy_version",
+        "prep_plan.policy_version references handling_policy_version.version",
+        "specimen.(matrix_kind, risk_level) resolves handling_rule"
+      ],
+      "invariants": [
+        "草稿唯一，发布后被消费",
+        "已发布版本追加且不可变，版本号单调递增",
+        "同一版本内基质与风险等级组合唯一",
+        "方案只快照评估时的版本，政策更新不追溯既有方案和进度",
+        "缺少政策或缺少匹配规则时不得放行方案创建与修改"
+      ]
     }
   ],
   "state_machines": [
@@ -179,6 +195,21 @@
       "workflow_id": "release-for-study",
       "description": "放行的前置条件是标本稳定且方案闭合；只检查当前状态会漏掉已取消或异常悬挂的历史方案，只检查方案会放过尚未稳定的标本",
       "observable_failure": "未稳定标本获得放行记录，或放行后仍能继续写入旧方案进度"
+    },
+    {
+      "workflow_id": "publish-handling-policy",
+      "description": "发布必须冻结草稿并消费它；若发布可重复执行或版本号在锁外分配，就会出现两个版本号相同、规则不同的政策，现场无法判断哪个生效",
+      "observable_failure": "重复发布成功产生重号版本，或两个维护人并发发布后版本跳号或重号"
+    },
+    {
+      "workflow_id": "enforce-handling-policy",
+      "description": "方案参数要按标本当前分类匹配最新政策精确评估，评估通过的版本必须快照；既不能跨基质或风险等级兜底，也不能让后续发布追溯改变已审批方案",
+      "observable_failure": "缺政策或缺规则时方案被放行，或发布更严格版本后正在进行的方案突然无法记录进度"
+    },
+    {
+      "workflow_id": "concurrent-policy-evaluation",
+      "description": "政策发布与方案创建并发时，每个方案必须绑定到某个已存在且永久可读的不可变版本；评估与版本分配若不共享锁，方案可能引用正在被替换的规则",
+      "observable_failure": "方案快照的政策版本不存在，或并发结束后发布版本不是连续无重号的序列"
     }
   ]
 }
